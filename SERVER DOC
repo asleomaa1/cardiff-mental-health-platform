@@ -1,0 +1,95 @@
+Architecture Overview
+
+The server is built using Express.js with TypeScript and implements a RESTful API architecture with WebSocket support for real-time features.
+
+Core Components
+
+AI Service (server/ai-service.ts): Handles integration with OpenAI for intelligent chat responses and sentiment analysis
+Authentication (server/auth.ts): Manages user sessions and security
+Storage (server/storage.ts): Handles data persistence and database operations
+Routes (server/routes.ts): API endpoint definitions
+Vite Integration (server/vite.ts): Development server configuration
+API Endpoints
+
+Authentication
+
+POST /api/register
+- Creates new user account
+- Required fields: username, email, password
+POST /api/login
+- Authenticates user
+- Required fields: username, password
+POST /api/logout
+- Ends user session
+Support Chat
+
+WebSocket /ws/support-chat
+- Real-time chat communication
+- Supports message streaming
+- AI-powered responses
+Appointments
+
+GET /api/appointments
+- Retrieves user's scheduled appointments
+POST /api/appointments
+- Books new appointment
+- Required fields: type, date, userId
+Resources
+
+GET /api/resources
+- Retrieves mental health resources
+- Optional query: category
+GET /api/resources/:id
+- Retrieves specific resource details
+Security Measures
+
+Authentication
+Session-based authentication
+CSRF protection
+Secure password hashing
+API Security
+Input validation using Zod schemas
+Rate limiting
+Request sanitization
+Data Protection
+Environment variable encryption
+Secure WebSocket connections
+Data validation middleware
+Error Handling
+
+The server implements a standardized error handling approach:
+
+{
+  status: number,
+  message: string,
+  details?: object
+}
+Common status codes:
+
+400: Bad Request
+401: Unauthorized
+403: Forbidden
+404: Not Found
+500: Internal Server Error
+WebSocket Implementation
+
+Real-time features are implemented using the ws package:
+
+const wss = new WebSocketServer({ 
+  server: httpServer,
+  path: '/ws/support-chat'
+});
+wss.on('connection', (ws) => {
+  ws.on('message', handleMessage);
+  ws.on('close', handleDisconnect);
+});
+Development
+
+Start the server:
+npm run dev
+Environment variables required:
+SESSION_SECRET=your_session_secret
+OPENAI_API_KEY=your_openai_key
+API testing:
+Use the provided Postman collection in /docs/postman
+Or use curl commands from /docs/api-examples.md
