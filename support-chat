@@ -1,0 +1,191 @@
+mport { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2, Send, MessageCircle, User, Bot, Lightbulb } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import type { SupportChat, SupportMessage } from "@shared/schema";
+
+export function SupportChat() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [isOpen, setIsOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [activeChatId, setActiveChatId] = useState<number | null>(null);
+  const [recommendations, setRecommendations] = useState<string[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const { data: activeChat } = useQuery<SupportChat>({
+    queryKey: ["/api/support/chats", activeChatId],
+    enabled: !!activeChatId,
+  });
+
+  const { data: messages, isLoading } = useQuery<SupportMessage[]>({
+    queryKey: ["/api/support/chats", activeChatId, "messages"],
+    enabled: !!activeChatId,
+  });
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Update WebSocket connection handling
+  useEffect(() => {
+    if (!isOpen || !user) return;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/support-chat`;
+    const socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => {
+      console.log("WebSocket connected");
+      // Start new chat if none active
+      if (!activeChatId) {
+        socket.send(JSON.stringify({ type: "start_chat" }));
+      }
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("Received message:", data);
+
+        switch (data.type) {
+          case "chat_started":
+            setActiveChatId(data.chatId);
+            queryClient.invalidateQueries({ queryKey: ["/api/support/chats", data.chatId] });
+            break;
+          case "message":
+            if (data.messages) {
+              queryClient.invalidateQueries({ queryKey: ["/api/support/chats", activeChatId, "messages"] });
+            }
+            break;
+          case "recommendations":
+            setRecommendations(data.recommendations);
+            break;
+        }
+      } catch (error) {
+        console.error("Error processing message:", error);
+      }
+    };
+
+    socket.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to support chat. Please try again.",
+        variant: "destructive",
+      });
+    };
+
+    socket.onclose = () => {
+      console.log("WebSocket closed");
+    };
+
+    setWs(socket);
+
+    return () => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+    };
+  }, [isOpen, user, activeChatId, queryClient]);
+
+  const handleSend = () => {
+    if (!message.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(JSON.stringify({
+      type: "message",
+      content: message,
+    }));
+
+    setMessage("");
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="secondary" className="w-full">
+          <MessageCircle className="h-4 w-4 mr-2" />
+          Chat with AI Support
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>AI Support Chat</DialogTitle>
+        </DialogHeader>
+        <div className="h-[400px] flex flex-col">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {isLoading ? (
+              <div className="flex justify-center">
+                <Loader2 className="h-6 w-6 animate-spin" />
+              </div>
+            ) : messages?.length === 0 ? (
+              <p className="text-center text-muted-foreground">
+                Start a conversation with our AI support system
+              </p>
+            ) : (
+              <>
+                {messages?.map((msg) => (
+                  <Card
+                    key={msg.id}
+                    className={msg.isStaff ? "bg-muted ml-8" : "mr-8"}
+                  >
+                    <CardContent className="pt-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        {msg.isStaff ? (
+                          <Bot className="h-4 w-4 text-primary" />
+                        ) : (
+                          <User className="h-4 w-4" />
+                        )}
+                        <span className="text-sm font-medium">
+                          {msg.isStaff ? "AI Support" : "You"}
+                        </span>
+                      </div>
+                      <p>{msg.content}</p>
+                    </CardContent>
+                  </Card>
+                ))}
+                {recommendations.length > 0 && (
+                  <Alert>
+                    <Lightbulb className="h-4 w-4" />
+                    <AlertDescription>
+                      <p className="font-medium mb-2">Recommended Resources:</p>
+                      <ul className="list-disc pl-4 space-y-1">
+                        {recommendations.map((rec, index) => (
+                          <li key={index}>{rec}</li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+          <div className="p-4 border-t flex gap-2">
+            <Input
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Type your message..."
+              onKeyPress={(e) => e.key === "Enter" && handleSend()}
+            />
+            <Button
+              onClick={handleSend}
+              disabled={!message.trim() || !ws || ws.readyState !== WebSocket.OPEN}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
